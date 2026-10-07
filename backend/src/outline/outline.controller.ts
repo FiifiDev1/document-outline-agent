@@ -1,8 +1,9 @@
-import { Controller, Get, Inject, Post } from '@nestjs/common';
-import { ApiInternalServerErrorResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
+import { Controller, Get, Inject, Post, Res } from '@nestjs/common';
+import { ApiInternalServerErrorResponse, ApiOkResponse, ApiOperation, ApiProduces, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { OutlineStore } from './outline.store';
 import { toHttpException } from './outline.error';
-import { seedOutline, withPositions } from '../common/utils';
+import { seedOutline, toMarkdown, withPositions } from '../common/utils';
 import { OutlineCorruptErrorDto, OutlineResponseDto, ResetResponseDto } from './outline.dto';
 
 @ApiTags('outline')
@@ -34,6 +35,22 @@ export class OutlineController {
     try {
       const doc = await this.store.save(seedOutline());
       return { items: withPositions(doc), reset: true };
+    } catch (err) {
+      throw toHttpException(err);
+    }
+  }
+
+  @Get('export')
+  // Downloads the file-on-disk outline as Markdown (source of truth, not panel state).
+  @ApiOperation({ summary: 'Export current outline as a Markdown download' })
+  @ApiProduces('text/markdown')
+  @ApiOkResponse({ description: 'outline.md attachment' })
+  @ApiInternalServerErrorResponse({ type: OutlineCorruptErrorDto })
+  async export(@Res() res: Response): Promise<void> {
+    try {
+      const doc = await this.store.load();
+      res.set({ 'content-type': 'text/markdown; charset=utf-8', 'content-disposition': 'attachment; filename="outline.md"' });
+      res.send(toMarkdown(doc));
     } catch (err) {
       throw toHttpException(err);
     }
