@@ -22,6 +22,24 @@ export async function resetOutline(): Promise<PositionedItem[]> {
   return data.items;
 }
 
+// Downloads the current outline as outline.md via the export endpoint.
+export async function exportOutline(): Promise<void> {
+  const res = await fetch('/api/outline/export');
+  if (!res.ok) throw new Error(`export failed: ${res.status}`);
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'outline.md';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 export type ChatStreamEvent =
   | { type: 'token'; text: string }
   | { type: 'tool_start'; name: string }

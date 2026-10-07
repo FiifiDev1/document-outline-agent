@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { fetchOutline, postChatStream, resetOutline, type PositionedItem } from './api';
+import { fetchOutline, postChatStream, exportOutline, resetOutline, type PositionedItem } from './api';
 
 interface Msg {
   id: number;
@@ -85,8 +85,7 @@ export default function App() {
 
   // Fresh data + fresh conversation: the agent's thread memory still
   // references deleted items after a data reset, so the thread must rotate too.
-  async function reset(): Promise<void> {
-    if (streaming) return;
+  async function reset(): Promise<void> {    if (streaming) return;
     if (!window.confirm('Reset the outline to the seed? This also clears the chat.')) return;
     try {
       setOutline(await resetOutline());
@@ -94,6 +93,15 @@ export default function App() {
       setThreadId(newThreadId());
     } catch (err: unknown) {
       setMsgs((prev) => [...prev, { id: nextId++, kind: 'error', text: err instanceof Error ? err.message : 'reset failed' }]);
+    }
+  }
+
+  async function doExport(): Promise<void> {
+    if (streaming) return;
+    try {
+      await exportOutline();
+    } catch (err: unknown) {
+      setMsgs((prev) => [...prev, { id: nextId++, kind: 'error', text: err instanceof Error ? err.message : 'export failed' }]);
     }
   }
 
@@ -144,9 +152,14 @@ export default function App() {
         <div style={{ background: '#fff', borderRadius: 20, padding: '20px 16px', boxShadow: '0 8px 24px rgba(80, 60, 160, 0.12)', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>Document Outline</h2>
-            <button onClick={() => void reset()} disabled={streaming} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid #e2e2ea', background: '#fafaff', fontSize: 13, cursor: streaming ? 'default' : 'pointer' }}>
-              Reset outline
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button onClick={() => void doExport()} disabled={streaming} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid #e2e2ea', background: '#fafaff', fontSize: 13, cursor: streaming ? 'default' : 'pointer' }}>
+                Export
+              </button>
+              <button onClick={() => void reset()} disabled={streaming} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid #e2e2ea', background: '#fafaff', fontSize: 13, cursor: streaming ? 'default' : 'pointer' }}>
+                Reset outline
+              </button>
+            </div>
           </div>
           {loadError !== null && <p style={{ color: 'red' }}>Backend unreachable: {loadError}</p>}
           {outline === null && loadError === null && <p>Loading…</p>}

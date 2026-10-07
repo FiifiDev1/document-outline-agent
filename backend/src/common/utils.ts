@@ -39,3 +39,14 @@ export function newItemId(existing: string[]): string {
     if (!taken.has(candidate)) return candidate;
   }
 }
+
+// Renders the outline as Markdown: heading per positioned item.
+export function toMarkdown(doc: OutlineDoc): string {
+  const lines = ['# Document Outline', ''];
+  withPositions(doc).forEach((item) => {
+    lines.push(`## ${item.position}. ${item.title.replace(/^#+/, '').trim()}`);
+    if (item.description !== '') lines.push('', item.description);
+    lines.push('');
+  });
+  return `${lines.join('\n').trimEnd()}\n`;
+}
