@@ -71,12 +71,3 @@ This is the part I thought about most, so here's the honest version — what I p
   Anthropic is wired. A `MODEL_PROVIDER` switch (Anthropic/OpenAI) plus a
   no-key demo mode with scripted responses would make review possible without
   spending key credit.
-
-## Verification status
-
-- `tsc --noEmit` clean (backend + frontend), `vite build` clean.
-- All six tools exercised directly against isolated stores (see
-  `backend/scripts/verify-t*.ts`); agent traps (#3 ask, #10 no-op, follow-up
-  continuity, cross-turn recall) verified live; SSE verified with curl
-  (tokens, tool bracketing, 400s, thread echo).
-- The 11-prompt session + `TRANSCRIPT.md` + screen recording remain (Phase 6/7).
