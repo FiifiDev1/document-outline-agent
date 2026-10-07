@@ -141,7 +141,7 @@ export default function App() {
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, sans-serif' }}>
       <section style={{ flex: 1, borderRight: '1px solid #ddd', padding: 20, overflowY: 'auto', background: '#efeafa' }}>
         <style>{`.outline-row { transition: background 0.15s ease; } .outline-row:hover { background: #f4f6fd; }`}</style>
-        <div style={{ background: '#fff', borderRadius: 20, padding: '20px 16px', boxShadow: '0 8px 24px rgba(80, 60, 160, 0.12)', maxWidth: 520 }}>
+        <div style={{ background: '#fff', borderRadius: 20, padding: '20px 16px', boxShadow: '0 8px 24px rgba(80, 60, 160, 0.12)', height: '100%', boxSizing: 'border-box', overflowY: 'auto' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <h2 style={{ margin: 0, fontSize: 18 }}>Document Outline</h2>
             <button onClick={() => void reset()} disabled={streaming} style={{ padding: '6px 12px', borderRadius: 999, border: '1px solid #e2e2ea', background: '#fafaff', fontSize: 13, cursor: streaming ? 'default' : 'pointer' }}>
