@@ -1,6 +1,11 @@
 {
   "items": [
     {
+      "id": "a1",
+      "title": "Introduction",
+      "description": "Set context and agenda."
+    },
+    {
       "id": "b2",
       "title": "Market Landscape",
       "description": "Size, growth, key segments."
@@ -24,11 +29,6 @@
       "id": "f6",
       "title": "Next Steps",
       "description": "Owners and timeline."
-    },
-    {
-      "id": "a1",
-      "title": "Introduction",
-      "description": "Set context and agenda."
     }
   ]
 }
