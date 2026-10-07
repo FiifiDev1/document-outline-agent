@@ -9,3 +9,4 @@ build/
 .vscode/
 task*.md
 verify*.ts
+/backend/scripts/

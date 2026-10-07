@@ -30,83 +30,27 @@ Useful endpoints: `GET /api/outline`, `POST /api/outline/reset` (restore seed),
 
 ## Design decisions and why
 
-**ID-only tools, list-first grounding.** The five mutating tools take item IDs,
-never titles — even though users never type IDs. The alternative was fuzzy
-title-matching inside the tools (forgiving, fewer round-trips). I dropped it:
-fuzzy matching hides ambiguity instead of resolving it, and it would have made
-prompts #3 ("pricing slide" → two matches) and #10 ("appendix" → zero matches)
-ungradeable coin flips. Strict IDs force the agent to ground via `list-outline`
-first, which makes the ask-vs-act decision explicit and visible in the transcript.
-The cost (one extra tool call per turn) is negligible next to an LLM round-trip.
+This is the part I thought about most, so here's the honest version — what I picked, what I passed up, and why.
 
-**Uniform `{ ok, [detail], outline }` envelope.** Every tool result — including
-`list-outline` — carries the fresh positioned outline. The alternative was
-minimal return values plus re-listing between chained calls. That doubles tool
-calls on multi-step turns (#8 move + rename) and risks acting on stale
-positions: between two moves, every position may have shifted. Returning fresh
-state makes "use the latest outline, not the original list" cheap to obey, and
-the system prompt + `move-item` description both say so.
+**Tools speak in IDs, even though users never do.** Nobody types "move a1 to 6" — people say "move the intro to the end." So why do five of the six tools only accept IDs? I considered the friendlier-sounding option: let the tools accept titles and fuzzy-match them behind the scenes. It would save a round-trip per turn. But fuzzy matching sweeps ambiguity under the rug, and ambiguity is the whole test here. "Delete the pricing slide" matches two items; "move the appendix" matches zero. A fuzzy tool would have to guess, and a wrong guess on a delete is the worst outcome in the app. Strict IDs force the agent to look at the real outline first (`list-outline`), decide what you meant, and — when it genuinely can't tell — ask you instead of gambling. One extra tool call per turn is a tiny price for that.
 
-**`item_not_found` returns the available items.** An unknown ID yields
-`{ ok: false, error, available: [{position, id, title}] }` instead of a bare
-error. The model can self-correct in the next call without another
-`list-outline` round-trip. Same shape on update/move/delete; delete's full-miss
-is `ok: false`, partial misses are `ok: true` with `{ deleted, notFound }`.
+**Every tool answer includes the fresh outline.** Each result comes back as `{ ok, [details], outline }` with current positions, even `list-outline` itself. The alternative was slim responses ("done, moved it") plus re-listing whenever the agent needed positions again. That falls apart on multi-step turns: in "move Competitive Analysis to the top and rename it," the rename needs positions *after* the move, and a move can shift everything. Handing back fresh state with every call makes "use the latest outline, not the one from a minute ago" the easy default — the system prompt and the `move-item` description both reinforce it.
 
-**Ask, don't guess — as plain text.** On multi-match (#3) the agent asks a
-question naming the candidates and makes zero tool calls; on zero-match (#10)
-it explains and lists options. "Asking" is just a text reply ending in a
-question — no interrupt/HITL machinery. The follow-up arrives as the next
-message on the same checkpointer thread and continues the task (verified live:
-"Pricing Overview." deleted exactly that item). The dropped alternative was
-picking the most likely match; for destructive actions a wrong guess is worse
-than a question, and the task explicitly rewards asking over guessing.
+**Errors come with a way out.** An unknown ID doesn't just say "not found" — it lists what's actually available (`available: [{position, id, title}]`), so the agent can correct itself in its very next call instead of starting over. Deletes go one step further: partial matches report `{ deleted, notFound }`, and only a total miss is an outright failure. Errors are part of the agent's reading material, so I wrote them like it.
 
-**Streaming via `streamEvents` v2, not `streamMode`.** The plan said
-`agent.stream({ streamMode: ['messages','updates'] })`. In practice `streamEvents`
-maps 1:1 onto the required UI events (`on_chat_model_stream` → tokens,
-`on_tool_start/end` → activity) without reassembling node updates. Text-only
-content is forwarded; tool payloads are deliberately excluded from the stream
-(they already shape the reply + outline). The turn ends with a fresh `outline`
-event (single source of truth, no polling) and `done{threadId}`.
+**When unsure, the agent asks — in plain words.** If your request matches two items, it asks which one you meant (naming both) and touches nothing. If it matches nothing, it says so and shows you what's there. There's no fancy approval machinery behind this: "asking" is just a reply that ends with a question mark, and your answer arrives as the next message on the same conversation thread, right where things left off. I verified this live — "Delete the pricing slide" got a question, "Pricing Overview." deleted exactly that item. The road not taken was having the agent pick the likelier match. For anything destructive, I'd rather be asked a slightly annoying question than watch the wrong slide disappear.
 
-**`create-outline` generates, then replaces in one write.** The sub-model call
-asks for a JSON-only array, strips fences, validates strictly with Zod, retries
-once with a "JSON only" nudge, and on double failure returns `generation_failed`
-with the existing outline untouched. Parsing is lenient, acceptance is strict,
-and ids are assigned before the single `save()` — never merged with old items.
+**Streaming is events, not polling.** As the agent works, the backend forwards two kinds of live activity: word-by-word reply tokens and tool start/finish markers ("calling update-item… done"). I used LangGraph's `streamEvents` rather than the `streamMode` approach in my original plan — it maps one-to-one onto what the UI needs, with no reassembly required. Tool inputs and outputs stay out of the stream (they'd just be noise; they already shape the reply and the outline). Each turn closes with a fresh `outline` event and a `done` carrying the thread ID, so the left panel is never guessing.
 
-**Reset rotates the thread.** `POST /api/outline/reset` (and the UI button)
-restores data, but the agent's thread memory still references deleted items, so
-the frontend also starts a fresh `threadId` and clears the chat. Reset =
-fresh data + fresh conversation, which is also what makes the 11-prompt script
-repeatable.
+**"Start over" means generate, then replace — carefully.** `create-outline` asks the model for a JSON-only list of slide titles and descriptions, cleans up the response (code fences and all), validates it strictly, and retries once with a firmer "JSON only, please" before giving up. If both attempts fail, your existing outline is left completely untouched. And when generation succeeds, the new outline replaces everything in a single save — old items are gone, new IDs throughout, never a mix of old and new.
 
-**Persistence: tmp-file + rename, mutex-chained.** All writes go through one
-`OutlineStore`: atomic rename (no truncated JSON on crash), a promise-chain
-mutex (concurrent tool calls in one turn can't interleave load→save), first-run
-seeding, and loud corruption errors instead of silent resets.
+**Reset means a fresh conversation too.** Restoring the seed data wasn't enough: the agent still *remembered* the deleted items from earlier in the conversation, which would have confused every turn after a reset. So the Reset button restores the file *and* starts a new conversation thread (clearing the chat). This is also what makes the eleven-prompt test script repeatable — fresh data, fresh memory, every time.
 
-**Kept the default deepagents harness.** `createDeepAgent({ model, tools,
-systemPrompt, checkpointer })` with default middleware (todos, virtual
-filesystem, subagents) — production parity per the brief. The "six tools" rule
-covers domain tools; nothing custom was added. The virtual FS backend can't
-touch `outline.json` on disk, so tools can't be bypassed. Pinned
-`deepagents@1.10.8` exactly: `^1.10.0` floats to 1.14.x, breaking the 1.10.x
-spec, and 1.10.6+ requires the LangChain core-v1 stack (`@langchain/core` 1.2.x,
-`@langchain/anthropic` 1.5.x, `zod` v4) — the legacy 0.3.x line erezolve-conflicts.
+**Saving is boring on purpose.** Every change funnels through one store that writes to a temp file and renames it into place (so a crash can't leave half a JSON file behind), queues concurrent writes so they can't interleave, recreates the seed on a fresh checkout, and shouts loudly about corruption instead of quietly resetting your data.
 
-**Two tsx gotchas, one root cause.** tsx/esbuild drops decorator metadata, so
-(1) Nest constructor injection needs explicit `@Inject()` everywhere
-(silent `undefined`, 500s otherwise), and (2) every `@ApiProperty` needs an
-explicit `type:` (swagger hallucinated a circular dependency). Related:
-`ValidationPipe` never fires without `transform: true`, and pipes don't run at
-all on `@Res()`-manual-mode routes (verified: global and method-level both
-returned 200 for `{}`) — so the chat endpoint validates with class-validator
-directly and returns 400 itself.
+**Same agent setup as production.** I kept deepagents' default harness (planning, virtual files, subagents) rather than stripping it down, since the brief says this mirrors the production setup — the "six tools" rule covers the tools I defined, and I added no seventh. One versioning lesson: `^1.10.0` silently installs 1.14.x, so the pin is exact (`1.10.8`), which in turn required the LangChain core-v1 dependency family. And two separate afternoons of confusion traced back to one culprit — the `tsx` runner drops decorator metadata, which is why you'll see explicit `@Inject()` on every constructor, explicit `type:` on every API property, and hand-rolled validation on the chat endpoint (framework pipes provably never run there).
 
-**Export reads the file, not the panel.** `GET /api/outline/export` renders
-Markdown from disk. Panel state could be stale; the file can't be.
+**Export reads the file, not the screen.** The Markdown download renders from `outline.json` on disk. The panel could theoretically be a step behind; the file can't be.
 
 ## What I'd do with more time
 
